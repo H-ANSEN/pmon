@@ -20,6 +20,7 @@ typedef struct {
     unsigned int work_mins;
     unsigned int long_break_mins;
     unsigned int short_break_mins;
+    FILE *log_file;
 } PmonConf;
 
 static const char* PHASE_NAME[] = {
@@ -27,6 +28,19 @@ static const char* PHASE_NAME[] = {
     [PMON_L_BREAK] = "Long Break",
     [PMON_S_BREAK] = "Short Break"
 };
+
+void log_time(const PmonConf *conf, int min, int secs, int total) {
+    if (conf->log_file != NULL) {
+        fseek(conf->log_file, 0, SEEK_SET);
+        fprintf(conf->log_file, "%s: [%02d:%02d/%d]\n",
+                PHASE_NAME[conf->phase], min, secs, total);
+        fflush(conf->log_file);
+    } else {
+        fprintf(stdout, "\r%s: [%02d:%02d/%d]",
+                PHASE_NAME[conf->phase], min, secs, total);
+        fflush(stdout);
+    }
+}
 
 int phase_minutes(const PmonConf *conf) {
     switch (conf->phase) {
@@ -64,21 +78,21 @@ void run_phase(const PmonConf *conf) {
         int minutes_left = time_left_seconds / SECONDS_IN_MINUTE;
         int seconds_left = time_left_seconds % SECONDS_IN_MINUTE;
 
-        fprintf(stderr, "\r%s: [%02d:%02d/%d]", 
-                PHASE_NAME[conf->phase], minutes_left, 
-                seconds_left, phase_len_minutes);
+        log_time(conf, minutes_left, seconds_left, phase_len_minutes);
         sleep(1);
     } while(current_time < end_time);
 }
 
 void print_usage(const char *prgm) {
     fprintf(stdout,
-        "Usage: %s [-c cycles] [-w work_minutes] [-l long_break_minutes] [-s short_break_minute]\n"
+        "Usage: %s [-c cycles] [-w work_minutes] [-l long_break_minutes]\n"
+        "          [-s short_break_minute] [-o log_filepath]\n"
         "  -h    Print this usage message\n"
         "  -c    Number of work sessions before a long break (default %d)\n"
         "  -w    Minutes per work session (default %d)\n"
         "  -l    Minutes per long break session (default %d)\n"
-        "  -s    Minutes per short break session (default %d)\n",
+        "  -s    Minutes per short break session (default %d)\n"
+        "  -o    Path to print timer output to",
         prgm, DEFAULT_CYCLES, DEFAULT_WORK_MINS, DEFAULT_LONG_BREAK_MINS, DEFAULT_SHORT_BREAK_MINS
     );
 }
@@ -91,18 +105,29 @@ int main(int argc, char **argv) {
         .work_mins = DEFAULT_WORK_MINS,
         .long_break_mins = DEFAULT_LONG_BREAK_MINS,
         .short_break_mins = DEFAULT_SHORT_BREAK_MINS,
+        .log_file = NULL
     };
 
     int opt;
-    while ((opt = getopt(argc, argv, "c:w:l:s:h")) != -1) {
+    const char *log_filename = NULL;
+    while ((opt = getopt(argc, argv, "c:w:l:s:o:h")) != -1) {
         switch (opt) {
             case 'c': conf.cycles = atoi(optarg); break;
             case 'w': conf.work_mins = atoi(optarg); break;
             case 'l': conf.long_break_mins = atoi(optarg); break;
             case 's': conf.short_break_mins = atoi(optarg); break;
+            case 'o': log_filename = optarg; break;
             case '?':
             case 'h':
             default: print_usage(argv[0]); return 1;
+        }
+    }
+
+    if (log_filename) {
+        conf.log_file = fopen(log_filename, "w");
+        if (!conf.log_file) {
+            perror("fopen");
+            return 1;
         }
     }
 
