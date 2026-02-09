@@ -74,6 +74,7 @@ void run_phase(const PmonConf *conf) {
 void print_usage(const char *prgm) {
     fprintf(stdout,
         "Usage: %s [-c cycles] [-w work_minutes] [-l long_break_minutes] [-s short_break_minute]\n"
+        "  -h    Print this usage message\n"
         "  -c    Number of work sessions before a long break (default %d)\n"
         "  -w    Minutes per work session (default %d)\n"
         "  -l    Minutes per long break session (default %d)\n"
@@ -93,12 +94,14 @@ int main(int argc, char **argv) {
     };
 
     int opt;
-    while ((opt = getopt(argc, argv, "c:w:l:s:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:w:l:s:h")) != -1) {
         switch (opt) {
             case 'c': conf.cycles = atoi(optarg); break;
             case 'w': conf.work_mins = atoi(optarg); break;
             case 'l': conf.long_break_mins = atoi(optarg); break;
             case 's': conf.short_break_mins = atoi(optarg); break;
+            case '?':
+            case 'h':
             default: print_usage(argv[0]); return 1;
         }
     }
