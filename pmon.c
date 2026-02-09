@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <time.h>
@@ -70,7 +71,18 @@ void run_phase(const PmonConf *conf) {
     } while(current_time < end_time);
 }
 
-int main(int argc, const char **argv) {
+void print_usage(const char *prgm) {
+    fprintf(stdout,
+        "Usage: %s [-c cycles] [-w work_minutes] [-l long_break_minutes] [-s short_break_minute]\n"
+        "  -c    Number of work sessions before a long break (default %d)\n"
+        "  -w    Minutes per work session (default %d)\n"
+        "  -l    Minutes per long break session (default %d)\n"
+        "  -s    Minutes per short break session (default %d)\n",
+        prgm, DEFAULT_CYCLES, DEFAULT_WORK_MINS, DEFAULT_LONG_BREAK_MINS, DEFAULT_SHORT_BREAK_MINS
+    );
+}
+
+int main(int argc, char **argv) {
     PmonConf conf = {
         .phase = PMON_WORK,
         .cycles = DEFAULT_CYCLES,
@@ -79,6 +91,17 @@ int main(int argc, const char **argv) {
         .long_break_mins = DEFAULT_LONG_BREAK_MINS,
         .short_break_mins = DEFAULT_SHORT_BREAK_MINS,
     };
+
+    int opt;
+    while ((opt = getopt(argc, argv, "c:w:l:s:")) != -1) {
+        switch (opt) {
+            case 'c': conf.cycles = atoi(optarg); break;
+            case 'w': conf.work_mins = atoi(optarg); break;
+            case 'l': conf.long_break_mins = atoi(optarg); break;
+            case 's': conf.short_break_mins = atoi(optarg); break;
+            default: print_usage(argv[0]); return 1;
+        }
+    }
 
     while (1) {
         run_phase(&conf);
