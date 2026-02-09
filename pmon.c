@@ -1,3 +1,4 @@
+#include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -14,14 +15,20 @@ typedef enum {
 } PmonPhase;
 
 typedef struct {
-    PmonPhase phase;
     unsigned int cycles;
-    unsigned int cycle_count;
     unsigned int work_mins;
     unsigned int long_break_mins;
     unsigned int short_break_mins;
     FILE *log_file;
 } PmonConf;
+
+typedef struct {
+    PmonPhase phase;
+    unsigned int cycle_count;
+    unsigned int time_worked;
+    unsigned int time_on_break;
+    unsigned int time_in_progress;
+} PmonState;
 
 static const char* PHASE_NAME[] = {
     [PMON_WORK]    = "Work",
@@ -29,21 +36,28 @@ static const char* PHASE_NAME[] = {
     [PMON_S_BREAK] = "Short Break"
 };
 
+static PmonState state = {
+    .phase = PMON_WORK,
+    .cycle_count = 0,
+    .time_worked = 0,
+    .time_on_break = 0
+};
+
 void log_time(const PmonConf *conf, int min, int secs, int total) {
     if (conf->log_file != NULL) {
         fseek(conf->log_file, 0, SEEK_SET);
         fprintf(conf->log_file, "%s: [%02d:%02d/%d]\n",
-                PHASE_NAME[conf->phase], min, secs, total);
+                PHASE_NAME[state.phase], min, secs, total);
         fflush(conf->log_file);
     } else {
         fprintf(stdout, "\r%s: [%02d:%02d/%d]",
-                PHASE_NAME[conf->phase], min, secs, total);
+                PHASE_NAME[state.phase], min, secs, total);
         fflush(stdout);
     }
 }
 
 int phase_minutes(const PmonConf *conf) {
-    switch (conf->phase) {
+    switch (state.phase) {
         case PMON_WORK:    return conf->work_mins;
         case PMON_L_BREAK: return conf->long_break_mins;
         case PMON_S_BREAK: return conf->short_break_mins;
@@ -51,13 +65,20 @@ int phase_minutes(const PmonConf *conf) {
 }
 
 PmonPhase next_phase(PmonConf *conf) {
-    if (conf->phase == PMON_WORK) {
-        conf->cycle_count++;
-        if (conf->cycle_count >= conf->cycles) return PMON_L_BREAK; 
+    if (state.phase == PMON_WORK) {
+        state.cycle_count++;
+        state.time_worked += conf->work_mins;
+        if (state.cycle_count >= conf->cycles) return PMON_L_BREAK; 
         else                                   return PMON_S_BREAK;
     } else {
-        if (conf->phase == PMON_L_BREAK) {
-            conf->cycle_count = 0;
+
+        if (state.phase == PMON_L_BREAK) {
+            state.cycle_count = 0;
+            state.time_on_break += conf->long_break_mins;
+        }
+
+        if (state.phase == PMON_S_BREAK) {
+            state.time_on_break += conf->short_break_mins;
         }
 
         return PMON_WORK;
@@ -78,9 +99,13 @@ void run_phase(const PmonConf *conf) {
         int minutes_left = time_left_seconds / SECONDS_IN_MINUTE;
         int seconds_left = time_left_seconds % SECONDS_IN_MINUTE;
 
+        state.time_in_progress = (phase_len_minutes * SECONDS_IN_MINUTE) - time_left_seconds;
+
         log_time(conf, minutes_left, seconds_left, phase_len_minutes);
         sleep(1);
     } while(current_time < end_time);
+
+    state.time_in_progress = 0;
 }
 
 void print_usage(const char *prgm) {
@@ -97,11 +122,33 @@ void print_usage(const char *prgm) {
     );
 }
 
+void exiting(int status, void *ptr) {
+    int seconds_worked_total = state.time_worked + (state.phase == PMON_WORK ? state.time_in_progress : 0);
+    int seconds_on_break_total = state.time_on_break + (state.phase == PMON_L_BREAK || state.phase == PMON_S_BREAK ? state.time_in_progress : 0);
+
+    int hours_worked = seconds_worked_total / 3600;
+    int minutes_worked = (seconds_worked_total % 3600) / 60;
+    int seconds_worked = seconds_worked_total % 60;
+
+    int hours_breaked = seconds_on_break_total / 3600;
+    int minutes_breaked = (seconds_on_break_total % 3600) / 60;
+    int seconds_breaked = seconds_on_break_total % 60;
+
+    fprintf(stdout,
+        "\n\n"
+        "Time Studying: %d hrs %d mins %d secs\n"
+        "Time On Break: %d hrs %d mins %d secs\n",
+        hours_worked, minutes_worked, seconds_worked,
+        hours_breaked, minutes_breaked, seconds_breaked);
+}
+
+void on_exit_handler(int sig) {
+    exit(0);
+}
+
 int main(int argc, char **argv) {
     PmonConf conf = {
-        .phase = PMON_WORK,
         .cycles = DEFAULT_CYCLES,
-        .cycle_count = 0,
         .work_mins = DEFAULT_WORK_MINS,
         .long_break_mins = DEFAULT_LONG_BREAK_MINS,
         .short_break_mins = DEFAULT_SHORT_BREAK_MINS,
@@ -131,9 +178,12 @@ int main(int argc, char **argv) {
         }
     }
 
+    signal(SIGINT, on_exit_handler);
+    on_exit(exiting, NULL);
+
     while (1) {
         run_phase(&conf);
-        conf.phase = next_phase(&conf);
+        state.phase = next_phase(&conf);
     }
 
     return 0;
