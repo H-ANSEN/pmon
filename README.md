@@ -9,6 +9,8 @@ Usage: pmon [-c cycles] [-w work_minutes] [-l long_break_minutes]
   -l    Minutes per long break session (default 30)
   -s    Minutes per short break session (default 5)
   -o    Path to print timer output to
+Signals:
+  SIGUSR1 - Send to pause/resume the timer
 ```
 ## Compiling
 ```

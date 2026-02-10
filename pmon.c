@@ -35,16 +35,19 @@ static const char* PHASE_NAME[] = {
     [PMON_S_BREAK] = "Short Break"
 };
 
+static volatile sig_atomic_t paused = 0;
+
 void log_time(const PmonConf *conf, int mins, int secs, int total) {
     FILE *out = conf->log_file ? conf->log_file : stdout;
+    const char *state = paused ? "(PAUSED) " : "";
 
     if (conf->log_file) {
         fseek(out, 0, SEEK_SET);
-        fprintf(out, "%s: [%02d:%02d/%02d:00]\n\n",
-                PHASE_NAME[conf->phase], mins, secs, total / SECONDS_IN_MINUTE);
+        fprintf(out, "%s%s: [%02d:%02d/%02d:00]\n\n",
+                state, PHASE_NAME[conf->phase], mins, secs, total / SECONDS_IN_MINUTE);
     } else {
-        fprintf(out, "\r%s: [%02d:%02d/%02d:00]                   ",
-                PHASE_NAME[conf->phase], mins, secs, total / SECONDS_IN_MINUTE);
+        fprintf(out, "\r%s%s: [%02d:%02d/%02d:00]                               ",
+                state, PHASE_NAME[conf->phase], mins, secs, total / SECONDS_IN_MINUTE);
         fprintf(out, "\e[?25l"); // hide cursor
     }
 
@@ -80,12 +83,20 @@ PmonPhase get_next_phase(PmonConf *conf) {
 void run_phase(PmonConf *conf) {
     int phase_length = get_phase_length(conf);
     time_t end_time = time(NULL) + phase_length;
+    time_t pause_start = 0;
 
     while (time(NULL) < end_time) {
         int left = end_time - time(NULL);
         conf->current_phase_secs = phase_length - left;
         log_time(conf, left / 60, left % 60, phase_length);
         sleep(1);
+
+        if (paused) {
+            pause_start = time(NULL);
+            log_time(conf, left / 60, left % 60, phase_length);
+            while (paused) { sleep(1); };
+            end_time += time(NULL) - pause_start;
+        }
     }
 
     update_tracked_time(conf);
@@ -117,9 +128,15 @@ void print_usage(const char *prgm) {
         "  -w    Minutes per work session (default %d)\n"
         "  -l    Minutes per long break session (default %d)\n"
         "  -s    Minutes per short break session (default %d)\n"
-        "  -o    Path to print timer output to\n",
+        "  -o    Path to print timer output to\n"
+        "Signals:\n"
+        "  SIGUSR1 - Send to pause/resume the timer\n",
         prgm, DEFAULT_CYCLES, DEFAULT_WORK_MINS, DEFAULT_LONG_BREAK_MINS, DEFAULT_SHORT_BREAK_MINS
     );
+}
+
+void pause_handler(int sig) {
+    paused = !paused;
 }
 
 void on_exit_handler(int sig) {
@@ -166,6 +183,7 @@ int main(int argc, char **argv) {
     PmonConf conf = parse_cmd_args(argc, argv);
 
     signal(SIGINT, on_exit_handler);
+    signal(SIGUSR1, pause_handler);
     on_exit(print_final_stats, &conf);
 
     while (1) {
