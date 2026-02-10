@@ -22,6 +22,7 @@ typedef struct {
     unsigned int current_phase_secs; // time spent in current phase in seconds
 
     FILE *log_file;                  // file to log to or NULL if none
+    const char *log_filepath;        // path to log file or NULL if none
 
     const unsigned int cycles;       // number of work sessions to a long break
     const unsigned int work_time;    // length of work sessions in seconds
@@ -37,16 +38,22 @@ static const char* PHASE_NAME[] = {
 
 static volatile sig_atomic_t paused = 0;
 
+void clear_log_file(PmonConf *conf) {
+    if (conf->log_file != NULL && conf->log_filepath != NULL) {
+        freopen(conf->log_filepath, "w", conf->log_file);
+    }
+}
+
 void log_time(const PmonConf *conf, int mins, int secs, int total) {
     FILE *out = conf->log_file ? conf->log_file : stdout;
     const char *state = paused ? "(PAUSED) " : "";
 
     if (conf->log_file) {
         fseek(out, 0, SEEK_SET);
-        fprintf(out, "%s%s: [%02d:%02d/%02d:00]\n\n",
+        fprintf(out, "%s%s: [%02d:%02d/%02d:00]",
                 state, PHASE_NAME[conf->phase], mins, secs, total / SECONDS_IN_MINUTE);
     } else {
-        fprintf(out, "\r%s%s: [%02d:%02d/%02d:00]                               ",
+        fprintf(out, "\r%s%s: [%02d:%02d/%02d:00]                             ",
                 state, PHASE_NAME[conf->phase], mins, secs, total / SECONDS_IN_MINUTE);
         fprintf(out, "\e[?25l"); // hide cursor
     }
@@ -96,6 +103,7 @@ void run_phase(PmonConf *conf) {
             log_time(conf, left / 60, left % 60, phase_length);
             while (paused) { sleep(1); };
             end_time += time(NULL) - pause_start;
+            clear_log_file(conf);
         }
     }
 
@@ -145,7 +153,7 @@ void on_exit_handler(int sig) {
 
 PmonConf parse_cmd_args(int argc, char **argv) {
     FILE *log_file = NULL;
-    const char *log_filename = NULL;
+    const char *log_filepath = NULL;
     unsigned int opt, cycles = 0, work_mins = 0, lbreak_mins = 0, sbreak_mins = 0;
 
     while ((opt = getopt(argc, argv, "c:w:l:s:o:h")) != -1) {
@@ -154,15 +162,15 @@ PmonConf parse_cmd_args(int argc, char **argv) {
             case 'w': work_mins = atoi(optarg); break;
             case 'l': lbreak_mins = atoi(optarg); break;
             case 's': sbreak_mins = atoi(optarg); break;
-            case 'o': log_filename = optarg; break;
+            case 'o': log_filepath = optarg; break;
             case '?':
             case 'h':
             default: print_usage(argv[0]); exit(2);
         }
     }
 
-    if (log_filename) {
-        log_file = fopen(log_filename, "w");
+    if (log_filepath) {
+        log_file = fopen(log_filepath, "w");
         if (!log_file) {
             perror("fopen");
             exit(2);
@@ -172,6 +180,7 @@ PmonConf parse_cmd_args(int argc, char **argv) {
     return (PmonConf) {
         .phase = PMON_WORK,
         .log_file = log_file,
+        .log_filepath = log_filepath,
         .cycles = cycles ? cycles : DEFAULT_CYCLES,
         .work_time = (work_mins ? work_mins : DEFAULT_WORK_MINS) * SECONDS_IN_MINUTE,
         .lbreak_time = (lbreak_mins ?  lbreak_mins : DEFAULT_LONG_BREAK_MINS) * SECONDS_IN_MINUTE,
@@ -189,6 +198,7 @@ int main(int argc, char **argv) {
     while (1) {
         run_phase(&conf);
         conf.phase = get_next_phase(&conf);
+        clear_log_file(&conf);
     }
 
     return 0;
