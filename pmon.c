@@ -6,7 +6,8 @@
 
 #include "config.h"
 
-#define SECONDS_IN_MINUTE 60
+#define SECS_IN_MIN   60
+#define SECS_IN_HR  3600
 
 typedef enum {
     PMON_WORK,
@@ -51,10 +52,10 @@ void log_time(const PmonConf *conf, int mins, int secs, int total) {
     if (conf->log_file) {
         fseek(out, 0, SEEK_SET);
         fprintf(out, "%s%s: [%02d:%02d/%02d:00]",
-                state, PHASE_NAME[conf->phase], mins, secs, total / SECONDS_IN_MINUTE);
+                state, PHASE_NAME[conf->phase], mins, secs, total / SECS_IN_MIN);
     } else {
         fprintf(out, "\r%s%s: [%02d:%02d/%02d:00]                             ",
-                state, PHASE_NAME[conf->phase], mins, secs, total / SECONDS_IN_MINUTE);
+                state, PHASE_NAME[conf->phase], mins, secs, total / SECS_IN_MIN);
         fprintf(out, "\e[?25l"); // hide cursor
     }
 
@@ -118,9 +119,13 @@ void print_final_stats(int status, void *ptr) {
         int break_secs = c->break_secs + (c->phase != PMON_WORK ? c->current_phase_secs : 0);
 
         printf("\n\nTime Studying: %d hrs %d mins %d secs\n",
-            work_secs / 3600, (work_secs % 3600) / 60, work_secs % 60);
+            work_secs / SECS_IN_HR,
+            (work_secs % SECS_IN_HR) / SECS_IN_MIN,
+            work_secs % SECS_IN_MIN);
         printf("Time On Break: %d hrs %d mins %d secs\n",
-            break_secs / 3600, (break_secs % 3600) / 60, break_secs % 60);
+            break_secs / SECS_IN_HR,
+            (break_secs % SECS_IN_HR) / SECS_IN_MIN,
+            break_secs % SECS_IN_MIN);
 
         clear_log_file(c);
         if (c->log_file != NULL) fclose(c->log_file);
@@ -186,9 +191,9 @@ PmonConf parse_cmd_args(int argc, char **argv) {
         .log_file = log_file,
         .log_filepath = log_filepath,
         .cycles = cycles ? cycles : DEFAULT_CYCLES,
-        .work_time = (work_mins ? work_mins : DEFAULT_WORK_MINS) * SECONDS_IN_MINUTE,
-        .lbreak_time = (lbreak_mins ?  lbreak_mins : DEFAULT_LONG_BREAK_MINS) * SECONDS_IN_MINUTE,
-        .sbreak_time = (sbreak_mins ? sbreak_mins : DEFAULT_SHORT_BREAK_MINS) * SECONDS_IN_MINUTE,
+        .work_time = (work_mins ? work_mins : DEFAULT_WORK_MINS) * SECS_IN_MIN,
+        .lbreak_time = (lbreak_mins ?  lbreak_mins : DEFAULT_LONG_BREAK_MINS) * SECS_IN_MIN,
+        .sbreak_time = (sbreak_mins ? sbreak_mins : DEFAULT_SHORT_BREAK_MINS) * SECS_IN_MIN,
     };
 }
 
