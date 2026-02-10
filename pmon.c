@@ -27,7 +27,7 @@ typedef struct {
     unsigned int cycle_count;
     unsigned int time_worked;
     unsigned int time_on_break;
-    unsigned int time_in_progress;
+    unsigned int current_phase_secs;
 } PmonState;
 
 static const char* PHASE_NAME[] = {
@@ -36,76 +36,72 @@ static const char* PHASE_NAME[] = {
     [PMON_S_BREAK] = "Short Break"
 };
 
-static PmonState state = {
-    .phase = PMON_WORK,
-    .cycle_count = 0,
-    .time_worked = 0,
-    .time_on_break = 0
-};
+static PmonState state = {0};
 
-void log_time(const PmonConf *conf, int min, int secs, int total) {
-    if (conf->log_file != NULL) {
-        fseek(conf->log_file, 0, SEEK_SET);
-        fprintf(conf->log_file, "%s: [%02d:%02d/%d]\n",
-                PHASE_NAME[state.phase], min, secs, total);
-        fflush(conf->log_file);
+void log_time(const PmonConf *conf, int mins, int secs, int total) {
+    FILE *out = conf->log_file ? conf->log_file : stdout;
+
+    if (conf->log_file) {
+        fseek(out, 0, SEEK_SET);
+        fprintf(out, "%s: [%02d:%02d/%d]\n\n", PHASE_NAME[state.phase], mins, secs, total);
     } else {
-        fprintf(stdout, "\r%s: [%02d:%02d/%d]",
-                PHASE_NAME[state.phase], min, secs, total);
-        fflush(stdout);
+        fprintf(out, "\r%s: [%02d:%02d/%d]       ", PHASE_NAME[state.phase], mins, secs, total);
+        fprintf(out, "\r");
+    }
+
+    fflush(out);
+}
+
+int get_phase_minutes(const PmonConf *conf) {
+    if (state.phase == PMON_WORK) return conf->work_mins;
+    if (state.phase == PMON_L_BREAK) return conf->long_break_mins;
+    return conf->short_break_mins;
+}
+
+void update_tracked_time(const PmonConf *conf) {
+    if (state.phase == PMON_WORK) {
+        state.time_worked += conf->work_mins * SECONDS_IN_MINUTE;
+    } else {
+        int mins = (state.phase == PMON_L_BREAK) ? conf->long_break_mins : conf->short_break_mins;
+        state.time_on_break += mins * SECONDS_IN_MINUTE;
     }
 }
 
-int phase_minutes(const PmonConf *conf) {
-    switch (state.phase) {
-        case PMON_WORK:    return conf->work_mins;
-        case PMON_L_BREAK: return conf->long_break_mins;
-        case PMON_S_BREAK: return conf->short_break_mins;
-    }
-}
-
-PmonPhase next_phase(PmonConf *conf) {
+PmonPhase get_next_phase(const PmonConf *conf) {
     if (state.phase == PMON_WORK) {
         state.cycle_count++;
-        state.time_worked += conf->work_mins;
-        if (state.cycle_count >= conf->cycles) return PMON_L_BREAK; 
-        else                                   return PMON_S_BREAK;
-    } else {
-
-        if (state.phase == PMON_L_BREAK) {
-            state.cycle_count = 0;
-            state.time_on_break += conf->long_break_mins;
-        }
-
-        if (state.phase == PMON_S_BREAK) {
-            state.time_on_break += conf->short_break_mins;
-        }
-
-        return PMON_WORK;
+        return (state.cycle_count >= conf->cycles) ? PMON_L_BREAK : PMON_S_BREAK;
     }
+
+    if (state.phase == PMON_L_BREAK) state.cycle_count = 0;
+
+    return PMON_WORK;
 }
 
 void run_phase(const PmonConf *conf) {
-    int phase_len_minutes = phase_minutes(conf);
+    int phase_minutes = get_phase_minutes(conf);
+    time_t end_time = time(NULL) + (phase_minutes * SECONDS_IN_MINUTE);
 
-    time_t current_time;
-    time_t start_time = time(NULL);
-    time_t end_time = start_time + (phase_len_minutes * SECONDS_IN_MINUTE);
-
-    do {
-        current_time = time(NULL);
-
-        int time_left_seconds = end_time - current_time;
-        int minutes_left = time_left_seconds / SECONDS_IN_MINUTE;
-        int seconds_left = time_left_seconds % SECONDS_IN_MINUTE;
-
-        state.time_in_progress = (phase_len_minutes * SECONDS_IN_MINUTE) - time_left_seconds;
-
-        log_time(conf, minutes_left, seconds_left, phase_len_minutes);
+    while (time(NULL) < end_time) {
+        int left = end_time - time(NULL);
+        state.current_phase_secs = (phase_minutes * SECONDS_IN_MINUTE) - left;
+        log_time(conf, left / 60, left % 60, phase_minutes);
         sleep(1);
-    } while(current_time < end_time);
+    }
 
-    state.time_in_progress = 0;
+    update_tracked_time(conf);
+    state.current_phase_secs = 0;
+}
+
+void print_final_stats(int status, void *ptr) {
+    (void) status; (void) ptr;
+    int work_secs = state.time_worked + (state.phase == PMON_WORK ? state.current_phase_secs : 0);
+    int break_secs = state.time_on_break + (state.phase != PMON_WORK ? state.current_phase_secs : 0);
+
+    printf("\n\nTime Studying: %d hrs %d mins %d secs\n",
+        work_secs / 3600, (work_secs % 3600) / 60, work_secs % 60);
+    printf("Time On Break: %d hrs %d mins %d secs\n",
+        break_secs / 3600, (break_secs % 3600) / 60, break_secs % 60);
 }
 
 void print_usage(const char *prgm) {
@@ -117,29 +113,9 @@ void print_usage(const char *prgm) {
         "  -w    Minutes per work session (default %d)\n"
         "  -l    Minutes per long break session (default %d)\n"
         "  -s    Minutes per short break session (default %d)\n"
-        "  -o    Path to print timer output to",
+        "  -o    Path to print timer output to\n",
         prgm, DEFAULT_CYCLES, DEFAULT_WORK_MINS, DEFAULT_LONG_BREAK_MINS, DEFAULT_SHORT_BREAK_MINS
     );
-}
-
-void exiting(int status, void *ptr) {
-    int seconds_worked_total = state.time_worked + (state.phase == PMON_WORK ? state.time_in_progress : 0);
-    int seconds_on_break_total = state.time_on_break + (state.phase == PMON_L_BREAK || state.phase == PMON_S_BREAK ? state.time_in_progress : 0);
-
-    int hours_worked = seconds_worked_total / 3600;
-    int minutes_worked = (seconds_worked_total % 3600) / 60;
-    int seconds_worked = seconds_worked_total % 60;
-
-    int hours_breaked = seconds_on_break_total / 3600;
-    int minutes_breaked = (seconds_on_break_total % 3600) / 60;
-    int seconds_breaked = seconds_on_break_total % 60;
-
-    fprintf(stdout,
-        "\n\n"
-        "Time Studying: %d hrs %d mins %d secs\n"
-        "Time On Break: %d hrs %d mins %d secs\n",
-        hours_worked, minutes_worked, seconds_worked,
-        hours_breaked, minutes_breaked, seconds_breaked);
 }
 
 void on_exit_handler(int sig) {
@@ -179,11 +155,11 @@ int main(int argc, char **argv) {
     }
 
     signal(SIGINT, on_exit_handler);
-    on_exit(exiting, NULL);
+    on_exit(print_final_stats, NULL);
 
     while (1) {
         run_phase(&conf);
-        state.phase = next_phase(&conf);
+        state.phase = get_next_phase(&conf);
     }
 
     return 0;
