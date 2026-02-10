@@ -122,6 +122,7 @@ void print_final_stats(int status, void *ptr) {
         printf("Time On Break: %d hrs %d mins %d secs\n",
             break_secs / 3600, (break_secs % 3600) / 60, break_secs % 60);
 
+        clear_log_file(c);
         if (c->log_file != NULL) fclose(c->log_file);
         printf("\e[?25h"); // restore cursor
     }
@@ -192,6 +193,7 @@ int main(int argc, char **argv) {
     PmonConf conf = parse_cmd_args(argc, argv);
 
     signal(SIGINT, on_exit_handler);
+    signal(SIGTERM, on_exit_handler);
     signal(SIGUSR1, pause_handler);
     on_exit(print_final_stats, &conf);
 
