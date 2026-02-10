@@ -42,7 +42,7 @@ void log_time(const PmonConf *conf, int mins, int secs, int total) {
         fprintf(out, "%s: [%02d:%02d/%d]\n\n", PHASE_NAME[conf->phase], mins, secs, total);
     } else {
         fprintf(out, "\r%s: [%02d:%02d/%d]       ", PHASE_NAME[conf->phase], mins, secs, total);
-        fprintf(out, "\r");
+        fprintf(out, "\e[?25l"); // hide cursor
     }
 
     fflush(out);
@@ -89,7 +89,7 @@ void run_phase(PmonConf *conf) {
     conf->current_phase_secs = 0;
 }
 
-void finish_prgm(int status, void *ptr) {
+void print_final_stats(int status, void *ptr) {
     if (status != 2) {
         PmonConf *c = (PmonConf*)ptr;
         int work_secs = c->time_worked + (c->phase == PMON_WORK ? c->current_phase_secs : 0);
@@ -101,6 +101,7 @@ void finish_prgm(int status, void *ptr) {
             break_secs / 3600, (break_secs % 3600) / 60, break_secs % 60);
 
         if (c->log_file != NULL) fclose(c->log_file);
+        printf("\e[?25h"); // restore cursor
     }
 }
 
@@ -162,7 +163,7 @@ int main(int argc, char **argv) {
     PmonConf conf = parse_cmd_args(argc, argv);
 
     signal(SIGINT, on_exit_handler);
-    on_exit(finish_prgm, &conf);
+    on_exit(print_final_stats, &conf);
 
     while (1) {
         run_phase(&conf);
