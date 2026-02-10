@@ -89,7 +89,7 @@ void run_phase(PmonConf *conf) {
     conf->current_phase_secs = 0;
 }
 
-void print_final_stats(int status, void *ptr) {
+void finish_prgm(int status, void *ptr) {
     if (status != 2) {
         PmonConf *c = (PmonConf*)ptr;
         int work_secs = c->time_worked + (c->phase == PMON_WORK ? c->current_phase_secs : 0);
@@ -99,6 +99,8 @@ void print_final_stats(int status, void *ptr) {
             work_secs / 3600, (work_secs % 3600) / 60, work_secs % 60);
         printf("Time On Break: %d hrs %d mins %d secs\n",
             break_secs / 3600, (break_secs % 3600) / 60, break_secs % 60);
+
+        if (c->log_file != NULL) fclose(c->log_file);
     }
 }
 
@@ -160,7 +162,7 @@ int main(int argc, char **argv) {
     PmonConf conf = parse_cmd_args(argc, argv);
 
     signal(SIGINT, on_exit_handler);
-    on_exit(print_final_stats, &conf);
+    on_exit(finish_prgm, &conf);
 
     while (1) {
         run_phase(&conf);
