@@ -39,9 +39,11 @@ void log_time(const PmonConf *conf, int mins, int secs, int total) {
 
     if (conf->log_file) {
         fseek(out, 0, SEEK_SET);
-        fprintf(out, "%s: [%02d:%02d/%d]\n\n", PHASE_NAME[conf->phase], mins, secs, total);
+        fprintf(out, "%s: [%02d:%02d/%d]\n\n",
+                PHASE_NAME[conf->phase], mins, secs, total);
     } else {
-        fprintf(out, "\r%s: [%02d:%02d/%d]       ", PHASE_NAME[conf->phase], mins, secs, total);
+        fprintf(out, "\r%s: [%02d:%02d/%d]                   ",
+                PHASE_NAME[conf->phase], mins, secs, total);
         fprintf(out, "\e[?25l"); // hide cursor
     }
 
@@ -126,7 +128,7 @@ void on_exit_handler(int sig) {
 PmonConf parse_cmd_args(int argc, char **argv) {
     FILE *log_file = NULL;
     const char *log_filename = NULL;
-    unsigned int opt, cycles, work_mins, long_break_mins, short_break_mins;
+    unsigned int opt, cycles = 0, work_mins = 0, long_break_mins = 0, short_break_mins = 0;
 
     while ((opt = getopt(argc, argv, "c:w:l:s:o:h")) != -1) {
         switch (opt) {
@@ -152,10 +154,10 @@ PmonConf parse_cmd_args(int argc, char **argv) {
     return (PmonConf) {
         .phase = PMON_WORK,
         .log_file = log_file,
-        .cycles = cycles ? DEFAULT_CYCLES : cycles,
-        .work_mins = work_mins ? DEFAULT_WORK_MINS : work_mins,
-        .long_break_mins = long_break_mins ? DEFAULT_LONG_BREAK_MINS : long_break_mins,
-        .short_break_mins = short_break_mins ? DEFAULT_SHORT_BREAK_MINS : short_break_mins,
+        .cycles = cycles ? cycles : DEFAULT_CYCLES,
+        .work_mins = work_mins ?  work_mins : DEFAULT_WORK_MINS,
+        .long_break_mins = long_break_mins ?  long_break_mins : DEFAULT_LONG_BREAK_MINS,
+        .short_break_mins = short_break_mins ? short_break_mins : DEFAULT_SHORT_BREAK_MINS,
     };
 }
 
