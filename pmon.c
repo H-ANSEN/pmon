@@ -15,17 +15,18 @@ typedef enum {
 } PmonPhase;
 
 typedef struct {
-    PmonPhase phase;
-    unsigned int cycle_count;
-    unsigned int time_worked;
-    unsigned int time_on_break;
-    unsigned int current_phase_secs;
+    PmonPhase phase;                 // the current phase
+    unsigned int cycle_count;        // current cycle number
+    unsigned int work_secs;          // total work phases completed in seconds
+    unsigned int break_secs;         // total break phases completed in seconds
+    unsigned int current_phase_secs; // time spent in current phase in seconds
 
-    FILE *log_file;
-    const unsigned int cycles;
-    const unsigned int work_mins;
-    const unsigned int long_break_mins;
-    const unsigned int short_break_mins;
+    FILE *log_file;                  // file to log to or NULL if none
+
+    const unsigned int cycles;       // number of work sessions to a long break
+    const unsigned int work_time;    // length of work sessions in seconds
+    const unsigned int lbreak_time;  // length of long breaks in seconds
+    const unsigned int sbreak_time;  // length of short breaks in seconds
 } PmonConf;
 
 static const char* PHASE_NAME[] = {
@@ -39,29 +40,29 @@ void log_time(const PmonConf *conf, int mins, int secs, int total) {
 
     if (conf->log_file) {
         fseek(out, 0, SEEK_SET);
-        fprintf(out, "%s: [%02d:%02d/%d]\n\n",
-                PHASE_NAME[conf->phase], mins, secs, total);
+        fprintf(out, "%s: [%02d:%02d/%02d:00]\n\n",
+                PHASE_NAME[conf->phase], mins, secs, total / SECONDS_IN_MINUTE);
     } else {
-        fprintf(out, "\r%s: [%02d:%02d/%d]                   ",
-                PHASE_NAME[conf->phase], mins, secs, total);
+        fprintf(out, "\r%s: [%02d:%02d/%02d:00]                   ",
+                PHASE_NAME[conf->phase], mins, secs, total / SECONDS_IN_MINUTE);
         fprintf(out, "\e[?25l"); // hide cursor
     }
 
     fflush(out);
 }
 
-int get_phase_minutes(const PmonConf *conf) {
-    if (conf->phase == PMON_WORK) return conf->work_mins;
-    if (conf->phase == PMON_L_BREAK) return conf->long_break_mins;
-    return conf->short_break_mins;
+int get_phase_length(const PmonConf *conf) {
+    if (conf->phase == PMON_WORK) return conf->work_time;
+    if (conf->phase == PMON_L_BREAK) return conf->lbreak_time;
+    return conf->sbreak_time;
 }
 
 void update_tracked_time(PmonConf *conf) {
     if (conf->phase == PMON_WORK) {
-        conf->time_worked += conf->work_mins * SECONDS_IN_MINUTE;
+        conf->work_secs += conf->work_time;
     } else {
-        int mins = (conf->phase == PMON_L_BREAK) ? conf->long_break_mins : conf->short_break_mins;
-        conf->time_on_break += mins * SECONDS_IN_MINUTE;
+        int mins = (conf->phase == PMON_L_BREAK) ? conf->lbreak_time : conf->sbreak_time;
+        conf->break_secs += mins;
     }
 }
 
@@ -77,13 +78,13 @@ PmonPhase get_next_phase(PmonConf *conf) {
 }
 
 void run_phase(PmonConf *conf) {
-    int phase_minutes = get_phase_minutes(conf);
-    time_t end_time = time(NULL) + (phase_minutes * SECONDS_IN_MINUTE);
+    int phase_length = get_phase_length(conf);
+    time_t end_time = time(NULL) + phase_length;
 
     while (time(NULL) < end_time) {
         int left = end_time - time(NULL);
-        conf->current_phase_secs = (phase_minutes * SECONDS_IN_MINUTE) - left;
-        log_time(conf, left / 60, left % 60, phase_minutes);
+        conf->current_phase_secs = phase_length - left;
+        log_time(conf, left / 60, left % 60, phase_length);
         sleep(1);
     }
 
@@ -94,8 +95,8 @@ void run_phase(PmonConf *conf) {
 void print_final_stats(int status, void *ptr) {
     if (status != 2) {
         PmonConf *c = (PmonConf*)ptr;
-        int work_secs = c->time_worked + (c->phase == PMON_WORK ? c->current_phase_secs : 0);
-        int break_secs = c->time_on_break + (c->phase != PMON_WORK ? c->current_phase_secs : 0);
+        int work_secs = c->work_secs + (c->phase == PMON_WORK ? c->current_phase_secs : 0);
+        int break_secs = c->break_secs + (c->phase != PMON_WORK ? c->current_phase_secs : 0);
 
         printf("\n\nTime Studying: %d hrs %d mins %d secs\n",
             work_secs / 3600, (work_secs % 3600) / 60, work_secs % 60);
@@ -128,14 +129,14 @@ void on_exit_handler(int sig) {
 PmonConf parse_cmd_args(int argc, char **argv) {
     FILE *log_file = NULL;
     const char *log_filename = NULL;
-    unsigned int opt, cycles = 0, work_mins = 0, long_break_mins = 0, short_break_mins = 0;
+    unsigned int opt, cycles = 0, work_mins = 0, lbreak_mins = 0, sbreak_mins = 0;
 
     while ((opt = getopt(argc, argv, "c:w:l:s:o:h")) != -1) {
         switch (opt) {
             case 'c': cycles = atoi(optarg); break;
             case 'w': work_mins = atoi(optarg); break;
-            case 'l': long_break_mins = atoi(optarg); break;
-            case 's': short_break_mins = atoi(optarg); break;
+            case 'l': lbreak_mins = atoi(optarg); break;
+            case 's': sbreak_mins = atoi(optarg); break;
             case 'o': log_filename = optarg; break;
             case '?':
             case 'h':
@@ -155,9 +156,9 @@ PmonConf parse_cmd_args(int argc, char **argv) {
         .phase = PMON_WORK,
         .log_file = log_file,
         .cycles = cycles ? cycles : DEFAULT_CYCLES,
-        .work_mins = work_mins ?  work_mins : DEFAULT_WORK_MINS,
-        .long_break_mins = long_break_mins ?  long_break_mins : DEFAULT_LONG_BREAK_MINS,
-        .short_break_mins = short_break_mins ? short_break_mins : DEFAULT_SHORT_BREAK_MINS,
+        .work_time = (work_mins ? work_mins : DEFAULT_WORK_MINS) * SECONDS_IN_MINUTE,
+        .lbreak_time = (lbreak_mins ?  lbreak_mins : DEFAULT_LONG_BREAK_MINS) * SECONDS_IN_MINUTE,
+        .sbreak_time = (sbreak_mins ? sbreak_mins : DEFAULT_SHORT_BREAK_MINS) * SECONDS_IN_MINUTE,
     };
 }
 
