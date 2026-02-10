@@ -145,18 +145,21 @@ void print_usage(const char *prgm) {
 }
 
 void pause_handler(int sig) {
+    (void)sig;
     paused = !paused;
 }
 
 void on_exit_handler(int sig) {
+    (void)sig;
     exit(0);
 }
 
 PmonConf parse_cmd_args(int argc, char **argv) {
     FILE *log_file = NULL;
     const char *log_filepath = NULL;
-    unsigned int opt, cycles = 0, work_mins = 0, lbreak_mins = 0, sbreak_mins = 0;
+    unsigned int cycles = 0, work_mins = 0, lbreak_mins = 0, sbreak_mins = 0;
 
+    int opt;
     while ((opt = getopt(argc, argv, "c:w:l:s:o:h")) != -1) {
         switch (opt) {
             case 'c': cycles = atoi(optarg); break;
