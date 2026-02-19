@@ -11,6 +11,7 @@ Usage: pmon [-c cycles] [-w work_minutes] [-l long_break_minutes]
   -o    Path to print timer output to
 Signals:
   SIGUSR1 - Send to pause/resume the timer
+  SIGUSR2 - Skip the current phase
 ```
 ## Compiling
 ```

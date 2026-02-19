@@ -38,6 +38,7 @@ static const char* PHASE_NAME[] = {
 };
 
 static volatile sig_atomic_t paused = 0;
+static volatile sig_atomic_t skip = 0;
 
 void clear_log_file(PmonConf *conf) {
     if (conf->log_file != NULL && conf->log_filepath != NULL) {
@@ -106,6 +107,11 @@ void run_phase(PmonConf *conf) {
             end_time += time(NULL) - pause_start;
             clear_log_file(conf);
         }
+
+        if (skip) {
+            skip = 0;
+            break;
+        }
     }
 
     update_tracked_time(conf);
@@ -144,19 +150,21 @@ void print_usage(const char *prgm) {
         "  -s    Minutes per short break session (default %d)\n"
         "  -o    Path to print timer output to\n"
         "Signals:\n"
-        "  SIGUSR1 - Send to pause/resume the timer\n",
+        "  SIGUSR1 - Send to pause/resume the timer\n"
+        "  SIGUSR2 - Skip the current phase\n",
         prgm, DEFAULT_CYCLES, DEFAULT_WORK_MINS, DEFAULT_LONG_BREAK_MINS, DEFAULT_SHORT_BREAK_MINS
     );
 }
 
-void pause_handler(int sig) {
-    (void)sig;
-    paused = !paused;
-}
-
-void on_exit_handler(int sig) {
-    (void)sig;
-    exit(0);
+void signal_handler(int sig) {
+    switch (sig) {
+        case SIGUSR1: paused = !paused; break;
+        case SIGUSR2: skip = !skip; break;
+        case SIGINT: exit(0);
+        case SIGTERM: exit(0);
+        default:
+            return;
+    }
 }
 
 PmonConf parse_cmd_args(int argc, char **argv) {
@@ -200,9 +208,10 @@ PmonConf parse_cmd_args(int argc, char **argv) {
 int main(int argc, char **argv) {
     PmonConf conf = parse_cmd_args(argc, argv);
 
-    signal(SIGINT, on_exit_handler);
-    signal(SIGTERM, on_exit_handler);
-    signal(SIGUSR1, pause_handler);
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+    signal(SIGUSR1, signal_handler);
+    signal(SIGUSR2, signal_handler);
     on_exit(print_final_stats, &conf);
 
     while (1) {
